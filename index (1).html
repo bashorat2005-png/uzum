@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARPS — Система прогнозирования возвратов</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f8f7f4;
+    --bg2: #ffffff;
+    --bg3: #f1f0ec;
+    --text: #1a1a18;
+    --text2: #6b6b66;
+    --text3: #9e9d98;
+    --border: rgba(0,0,0,0.10);
+    --border2: rgba(0,0,0,0.18);
+    --blue: #185FA5;
+    --blue-light: #E6F1FB;
+    --green: #3B6D11;
+    --green-light: #EAF3DE;
+    --red: #A32D2D;
+    --red-light: #FCEBEB;
+    --amber: #854F0B;
+    --amber-light: #FAEEDA;
+    --teal: #0F6E56;
+    --teal-light: #E1F5EE;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.07);
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+
+  /* LAYOUT */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+  .topbar { background: var(--bg2); border-bottom: 0.5px solid var(--border2); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .logo { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+  .logo span { color: var(--blue); }
+  .logo-sub { font-size: 12px; color: var(--text3); border-left: 1px solid var(--border2); padding-left: 12px; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .badge-live { background: var(--green-light); color: var(--green); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 100px; display: flex; align-items: center; gap: 5px; }
+  .dot-live { width: 6px; height: 6px; background: #3B6D11; border-radius: 50%; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .main { display: flex; flex: 1; }
+  .sidebar { width: 200px; background: var(--bg2); border-right: 0.5px solid var(--border); padding: 16px 0; flex-shrink: 0; }
+  .nav-section { padding: 0 12px; margin-bottom: 20px; }
+  .nav-label { font-size: 10px; font-weight: 600; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 8px; margin-bottom: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius); font-size: 13px; color: var(--text2); cursor: pointer; transition: background 0.1s; }
+  .nav-item:hover { background: var(--bg3); }
+  .nav-item.active { background: var(--blue-light); color: var(--blue); font-weight: 500; }
+  .nav-icon { font-size: 14px; width: 16px; text-align: center; }
+
+  .content { flex: 1; padding: 24px; overflow-y: auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* PAGE HEADER */
+  .page-header { margin-bottom: 20px; }
+  .page-title { font-size: 20px; font-weight: 600; color: var(--text); }
+  .page-sub { font-size: 13px; color: var(--text3); margin-top: 2px; }
+
+  /* METRICS */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .metric { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: var(--shadow); }
+  .metric-label { font-size: 11px; color: var(--text3); font-weight: 500; margin-bottom: 6px; }
+  .metric-value { font-size: 26px; font-weight: 600; color: var(--text); line-height: 1; }
+  .metric-delta { font-size: 11px; margin-top: 5px; display: flex; align-items: center; gap: 3px; }
+  .delta-down { color: var(--green); } .delta-up { color: var(--red); } .delta-neu { color: var(--text3); }
+
+  /* CARDS ROW */
+  .cards-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 16px; box-shadow: var(--shadow); }
+  .card-title { font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 14px; }
+
+  /* CHARTS */
+  .bar-chart-wrap { display: flex; align-items: flex-end; gap: 6px; height: 80px; }
+  .bar-group { flex: 1; display: flex; gap: 2px; align-items: flex-end; }
+  .bar { border-radius: 3px 3px 0 0; min-height: 4px; }
+  .bar-labels { display: flex; gap: 6px; margin-top: 5px; }
+  .bar-lbl { flex: 1; font-size: 10px; color: var(--text3); text-align: center; }
+  .legend { display: flex; gap: 12px; margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .cat-name { font-size: 12px; color: var(--text2); width: 100px; flex-shrink: 0; }
+  .cat-bar-bg { flex: 1; background: var(--bg3); height: 5px; border-radius: 3px; overflow: hidden; }
+  .cat-bar-fill { height: 100%; border-radius: 3px; }
+  .cat-val { font-size: 12px; font-weight: 500; min-width: 40px; text-align: right; }
+
+  /* ORDERS TABLE */
+  .section-label { font-size: 11px; font-weight: 600; color: var(--text3); letter-spacing: 0.07em; text-transform: uppercase; margin: 20px 0 10px; }
+  .table-wrap { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { font-size: 11px; font-weight: 500; color: var(--text3); text-align: left; padding: 10px 12px; border-bottom: 0.5px solid var(--border); background: var(--bg3); }
+  tbody tr { border-bottom: 0.5px solid var(--border); cursor: pointer; transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #f5f4f0; }
+  tbody td { padding: 10px 12px; vertical-align: middle; }
+
+  /* RISK BAR */
+  .risk-wrap { display: flex; align-items: center; gap: 8px; }
+  .risk-bg { flex: 1; height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .risk-fill { height: 100%; border-radius: 3px; }
+  .risk-num { font-size: 12px; font-weight: 600; min-width: 24px; }
+
+  /* BADGES */
+  .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 100px; }
+  .b-high { background: var(--red-light); color: var(--red); }
+  .b-med { background: var(--amber-light); color: var(--amber); }
+  .b-low { background: var(--green-light); color: var(--green); }
+  .b-sent { background: var(--blue-light); color: var(--blue); }
+  .b-none { background: var(--bg3); color: var(--text3); border: 0.5px solid var(--border); }
+
+  /* DETAIL PANEL */
+  .detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
+  .detail-overlay.open { display: flex; align-items: center; justify-content: center; }
+  .detail-modal { background: var(--bg2); border-radius: var(--radius-lg); width: 640px; max-width: 95vw; max-height: 85vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+  .modal-header { padding: 16px 20px; border-bottom: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--bg2); z-index: 1; }
+  .modal-title { font-size: 15px; font-weight: 600; }
+  .modal-sub { font-size: 12px; color: var(--text3); margin-top: 1px; }
+  .close-btn { background: none; border: none; cursor: pointer; font-size: 20px; color: var(--text3); line-height: 1; padding: 2px 6px; border-radius: 4px; }
+  .close-btn:hover { background: var(--bg3); color: var(--text); }
+  .modal-body { display: grid; grid-template-columns: 1fr 1fr; }
+  .modal-section { padding: 16px 20px; }
+  .modal-section:first-child { border-right: 0.5px solid var(--border); }
+  .modal-section h4 { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 12px; }
+
+  .shap-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .shap-name { font-size: 12px; color: var(--text2); flex: 1; }
+  .shap-bar-bg { width: 70px; background: var(--bg3); height: 4px; border-radius: 2px; overflow: hidden; }
+  .shap-bar-fill { height: 100%; border-radius: 2px; }
+  .shap-val { font-size: 12px; font-weight: 500; min-width: 32px; text-align: right; }
+
+  .iv-card { border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; }
+  .iv-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .iv-label { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 3px; }
+  .iv-text { font-size: 12px; color: var(--text); line-height: 1.5; }
+
+  /* MODEL PAGE */
+  .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .model-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 16px; box-shadow: var(--shadow); }
+  .model-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+  .algo-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 0.5px solid var(--border); }
+  .algo-row:last-child { border-bottom: none; }
+  .algo-name { font-size: 12px; flex: 1; }
+  .algo-auc { font-size: 12px; font-weight: 600; min-width: 40px; }
+  .algo-bar-bg { width: 80px; background: var(--bg3); height: 4px; border-radius: 2px; overflow: hidden; }
+  .algo-bar-fill { height: 100%; border-radius: 2px; background: var(--blue); }
+  .algo-row.best .algo-name { font-weight: 600; color: var(--blue); }
+  .algo-row.best .algo-auc { color: var(--blue); }
+  .feature-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 0.5px solid var(--border); }
+  .feature-row:last-child { border-bottom: none; }
+  .feature-name { font-size: 12px; flex: 1; }
+  .feature-imp { font-size: 12px; font-weight: 600; min-width: 36px; text-align: right; }
+  .feature-bar-bg { width: 80px; background: var(--bg3); height: 4px; border-radius: 2px; overflow: hidden; }
+  .feature-bar-fill { height: 100%; border-radius: 2px; }
+
+  .conf-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .cm-cell { padding: 12px; border-radius: var(--radius); text-align: center; }
+  .cm-label { font-size: 10px; color: var(--text2); margin-bottom: 4px; }
+  .cm-value { font-size: 18px; font-weight: 700; }
+  .cm-pct { font-size: 11px; margin-top: 2px; }
+  .cm-tp { background: var(--green-light); } .cm-tp .cm-value { color: var(--green); }
+  .cm-fn { background: var(--red-light); } .cm-fn .cm-value { color: var(--red); }
+  .cm-fp { background: var(--amber-light); } .cm-fp .cm-value { color: var(--amber); }
+  .cm-tn { background: var(--green-light); } .cm-tn .cm-value { color: var(--green); }
+
+  /* FINANCE PAGE */
+  .fin-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+  .fin-table { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); margin-bottom: 16px; }
+  .fin-table table { width: 100%; border-collapse: collapse; }
+  .fin-table thead th { background: var(--bg3); padding: 10px 14px; font-size: 11px; font-weight: 500; color: var(--text3); text-align: left; border-bottom: 0.5px solid var(--border); }
+  .fin-table tbody td { padding: 10px 14px; font-size: 13px; border-bottom: 0.5px solid var(--border); }
+  .fin-table tbody tr:last-child td { border-bottom: none; }
+  .fin-table .section-row td { background: #f1f0ec; font-weight: 600; font-size: 12px; color: var(--text2); }
+  .fin-table .total-row td { background: var(--blue-light); font-weight: 700; color: var(--blue); }
+  .fin-table .roi-row td { background: var(--amber-light); font-weight: 700; color: var(--amber); }
+  .num { text-align: right; }
+
+  /* ABOUT PAGE */
+  .about-wrap { max-width: 640px; }
+  .about-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px 24px; box-shadow: var(--shadow); margin-bottom: 16px; }
+  .about-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .about-card p { font-size: 13px; color: var(--text2); line-height: 1.7; margin-bottom: 8px; }
+  .about-card p:last-child { margin-bottom: 0; }
+  .arch-step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }
+  .step-num { width: 24px; height: 24px; background: var(--blue); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .step-body { font-size: 13px; color: var(--text2); line-height: 1.6; }
+  .step-title { font-weight: 600; color: var(--text); }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { background: var(--bg3); color: var(--text2); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 100px; border: 0.5px solid var(--border); }
+  .tag.blue { background: var(--blue-light); color: var(--blue); border-color: transparent; }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    .metrics, .cards-row, .model-grid, .fin-metrics { grid-template-columns: 1fr 1fr; }
+    .modal-body { grid-template-columns: 1fr; }
+    .modal-section:first-child { border-right: none; border-bottom: 0.5px solid var(--border); }
+    .sidebar { display: none; }
+  }
+  @media (max-width: 480px) {
+    .metrics, .fin-metrics { grid-template-columns: 1fr; }
+    .content { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo"><span>ARPS</span> Dashboard</div>
+    <div class="logo-sub">Advanced Return Prediction System · Uzum Market</div>
+  </div>
+  <div class="topbar-right">
+    <div class="badge-live"><div class="dot-live"></div> Live</div>
+  </div>
+</div>
+
+<div class="main">
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="nav-section">
+    <div class="nav-label">Главное</div>
+    <div class="nav-item active" onclick="showPage('dashboard', this)"><span class="nav-icon">📊</span> Дашборд</div>
+    <div class="nav-item" onclick="showPage('orders', this)"><span class="nav-icon">📦</span> Заказы</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Модель</div>
+    <div class="nav-item" onclick="showPage('model', this)"><span class="nav-icon">🤖</span> Модель ARPS</div>
+    <div class="nav-item" onclick="showPage('finance', this)"><span class="nav-icon">💰</span> Экономика</div>
+    <div class="nav-item" onclick="showPage('about', this)"><span class="nav-icon">ℹ️</span> О системе</div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+  <!-- ═══ DASHBOARD PAGE ═══ -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header">
+      <div class="page-title">Обзор системы</div>
+      <div class="page-sub">A/B-эксперимент · 1 октября 2024 — 31 марта 2025 · 87 340 заказов</div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Возвраты (эксп. группа)</div>
+        <div class="metric-value">21.7%</div>
+        <div class="metric-delta delta-down">↓ 6.7 п.п. vs базовый уровень</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Возвраты (контрольная)</div>
+        <div class="metric-value">27.1%</div>
+        <div class="metric-delta delta-neu">− без изменений (−1.3 п.п.)</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Рост конверсии</div>
+        <div class="metric-value">+21.9%</div>
+        <div class="metric-delta delta-down">↑ с 3.2% до 3.9%</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">NPS клиентов</div>
+        <div class="metric-value">66</div>
+        <div class="metric-delta delta-down">↑ +8 баллов (+13.8%)</div>
+      </div>
+    </div>
+
+    <div class="cards-row">
+      <div class="card">
+        <div class="card-title">Уровень возвратов по неделям, %</div>
+        <div class="bar-chart-wrap" id="main-chart"></div>
+        <div class="bar-labels" id="main-labels"></div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#185FA5"></div> Эксперимент</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#B4B2A9"></div> Контроль</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Снижение возвратов по категориям</div>
+        <div id="cat-chart-main"></div>
+      </div>
+    </div>
+
+    <div class="section-label">Последние заказы с высоким риском</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Заказ</th><th>Товар</th><th>Покупатель</th>
+          <th>Индекс риска</th><th>Уровень</th><th>Статус</th>
+        </tr></thead>
+        <tbody id="dash-orders"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ ORDERS PAGE ═══ -->
+  <div class="page" id="page-orders">
+    <div class="page-header">
+      <div class="page-title">Все заказы</div>
+      <div class="page-sub">Кликните на заказ, чтобы увидеть детали и SHAP-объяснение</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <select id="filter-risk" onchange="renderOrdersPage()" style="font-size:13px;padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text)">
+        <option value="all">Все уровни риска</option>
+        <option value="high">Высокий</option>
+        <option value="med">Средний</option>
+        <option value="low">Низкий</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Заказ</th><th>Товар</th><th>Покупатель</th><th>Способ оплаты</th>
+          <th>Индекс риска</th><th>Уровень</th><th>Интервенция</th>
+        </tr></thead>
+        <tbody id="all-orders"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ MODEL PAGE ═══ -->
+  <div class="page" id="page-model">
+    <div class="page-header">
+      <div class="page-title">Модель XGBoost</div>
+      <div class="page-sub">AUC-ROC = 0.871 · Accuracy = 83.6% · Инференс 80–120 мс</div>
+    </div>
+    <div class="model-grid">
+      <div class="model-card">
+        <h3>Сравнение алгоритмов (AUC-ROC)</h3>
+        <div id="algo-compare"></div>
+      </div>
+      <div class="model-card">
+        <h3>Важность признаков (Feature Importance)</h3>
+        <div id="features"></div>
+      </div>
+      <div class="model-card">
+        <h3>Матрица ошибок (тестовая выборка, n = 26 202)</h3>
+        <div class="conf-matrix">
+          <div class="cm-cell cm-tp"><div class="cm-label">True Positive</div><div class="cm-value">2 814</div><div class="cm-pct" style="color:var(--green)">Recall 80.3%</div></div>
+          <div class="cm-cell cm-fn"><div class="cm-label">False Negative</div><div class="cm-value">689</div><div class="cm-pct" style="color:var(--red)">Пропущено 19.7%</div></div>
+          <div class="cm-cell cm-fp"><div class="cm-label">False Positive</div><div class="cm-value">651</div><div class="cm-pct" style="color:var(--amber)">FPR 4.9%</div></div>
+          <div class="cm-cell cm-tn"><div class="cm-label">True Negative</div><div class="cm-value">12 646</div><div class="cm-pct" style="color:var(--green)">Точность 95.1%</div></div>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text3)">Порог классификации: 0.42 (оптимизирован по Precision-Recall)</div>
+      </div>
+      <div class="model-card">
+        <h3>Ключевые метрики модели</h3>
+        <div id="model-metrics"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FINANCE PAGE ═══ -->
+  <div class="page" id="page-finance">
+    <div class="page-header">
+      <div class="page-title">Экономическая оценка</div>
+      <div class="page-sub">Трёхлетний горизонт · Ставка дисконтирования 16%</div>
+    </div>
+    <div class="fin-metrics">
+      <div class="metric"><div class="metric-label">NPV (3 года)</div><div class="metric-value">$342K</div><div class="metric-delta delta-down">↑ при ставке 16%</div></div>
+      <div class="metric"><div class="metric-label">IRR</div><div class="metric-value">214%</div><div class="metric-delta delta-down">↑ высокая доходность</div></div>
+      <div class="metric"><div class="metric-label">Срок окупаемости</div><div class="metric-value">7.4 мес.</div><div class="metric-delta delta-down">↓ быстрая окупаемость</div></div>
+      <div class="metric"><div class="metric-label">ROI (год 1)</div><div class="metric-value">107%</div><div class="metric-delta delta-down">↑ уже в 1-й год</div></div>
+    </div>
+    <div class="fin-table">
+      <table>
+        <thead><tr><th>Статья</th><th class="num">Год 1 (тыс. $)</th><th class="num">Год 2 (тыс. $)</th><th class="num">Год 3 (тыс. $)</th></tr></thead>
+        <tbody>
+          <tr class="section-row"><td colspan="4">ЗАТРАТЫ</td></tr>
+          <tr><td>Разработка и интеграция модели</td><td class="num">48.0</td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>Серверная инфраструктура (MLOps)</td><td class="num">18.0</td><td class="num">20.0</td><td class="num">22.0</td></tr>
+          <tr><td>Сопровождение и переобучение модели</td><td class="num">12.0</td><td class="num">14.0</td><td class="num">14.0</td></tr>
+          <tr><td>Обучение персонала</td><td class="num">6.0</td><td class="num">2.0</td><td class="num">2.0</td></tr>
+          <tr class="total-row"><td>Итого затраты</td><td class="num">84.0</td><td class="num">36.0</td><td class="num">38.0</td></tr>
+          <tr class="section-row"><td colspan="4">ВЫГОДЫ</td></tr>
+          <tr><td>Экономия на логистике возвратов</td><td class="num">112.0</td><td class="num">145.0</td><td class="num">160.0</td></tr>
+          <tr><td>Снижение потерь от брака и утилизации</td><td class="num">38.0</td><td class="num">47.0</td><td class="num">52.0</td></tr>
+          <tr><td>Прирост GMV за счёт конверсии</td><td class="num">24.0</td><td class="num">38.0</td><td class="num">51.0</td></tr>
+          <tr class="total-row"><td>Итого выгоды</td><td class="num">174.0</td><td class="num">230.0</td><td class="num">263.0</td></tr>
+          <tr class="total-row"><td>Чистая выгода</td><td class="num">+90.0</td><td class="num">+194.0</td><td class="num">+225.0</td></tr>
+          <tr class="roi-row"><td>ROI</td><td class="num">107%</td><td class="num">539%</td><td class="num">592%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text3);padding:4px 0">
+      * Базовые допущения: 350 тыс. заказов/год · средний чек $42 · снижение возвратов на 23.6% · стоимость обработки возврата $4.80
+    </div>
+  </div>
+
+  <!-- ═══ ABOUT PAGE ═══ -->
+  <div class="page" id="page-about">
+    <div class="page-header">
+      <div class="page-title">О системе ARPS</div>
+      <div class="page-sub">Advanced Return Prediction System</div>
+    </div>
+    <div class="about-wrap">
+      <div class="about-card">
+        <h3>Что делает система</h3>
+        <p>ARPS — интеллектуальная система прогнозирования возвратов для платформы электронной коммерции Uzum Market. При каждом подтверждённом заказе система за 80–120 мс анализирует 10 признаков покупателя и товара, вычисляет индекс риска возврата (0–100) и при значении ≥ 42 автоматически инициирует персонализированное вмешательство.</p>
+        <p>Разработана в рамках дипломной работы на данных 87 340 заказов Uzum Market за 2024 год.</p>
+      </div>
+      <div class="about-card">
+        <h3>Архитектура системы</h3>
+        <div class="arch-step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Сбор данных</div>Транзакции из OMS, поведение из веб-аналитики, данные о товарах из каталога → Redis-кэш + ClickHouse</div></div>
+        <div class="arch-step"><div class="step-num">2</div><div class="step-body"><div class="step-title">Feature Engineering</div>Batch-режим (агрегаты за 6 мес., ежедневно) + online-режим (признаки сессии, в реальном времени)</div></div>
+        <div class="arch-step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Модель XGBoost</div>ONNX-сериализация, REST API на FastAPI, инференс 80–120 мс, горизонтальное масштабирование</div></div>
+        <div class="arch-step"><div class="step-num">4</div><div class="step-body"><div class="step-title">SHAP-объяснения</div>Топ-3 фактора риска для каждого заказа → персонализированное сообщение покупателю</div></div>
+        <div class="arch-step"><div class="step-num">5</div><div class="step-body"><div class="step-title">Мониторинг</div>PSI-мониторинг дрейфа данных, ежеквартальный ретрейн модели, A/B-тестирование интервенций</div></div>
+      </div>
+      <div class="about-card">
+        <h3>Технологический стек</h3>
+        <div class="tag-row">
+          <span class="tag blue">XGBoost</span><span class="tag blue">SHAP</span><span class="tag blue">SMOTE</span>
+          <span class="tag blue">FastAPI</span><span class="tag blue">ONNX</span>
+          <span class="tag">Python</span><span class="tag">Redis</span><span class="tag">ClickHouse</span>
+          <span class="tag">Docker</span><span class="tag">Optuna</span>
+        </div>
+      </div>
+      <div class="about-card">
+        <h3>Результаты A/B-эксперимента</h3>
+        <p>Период: 01.10.2024 — 31.03.2025 · Эксперимент: 42 600 заказов · Контроль: 44 740 заказов</p>
+        <p>Снижение возвратов: <strong>−23.6%</strong> (с 28.4% до 21.7%) · p &lt; 0.001 · χ² = 218.4</p>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- DETAIL MODAL -->
+<div class="detail-overlay" id="overlay" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title">Заказ</div>
+        <div class="modal-sub" id="modal-sub"></div>
+      </div>
+      <button class="close-btn" onclick="closeDetail()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <h4>Факторы риска (SHAP)</h4>
+        <div id="modal-shap"></div>
+      </div>
+      <div class="modal-section">
+        <h4>Автоматические вмешательства</h4>
+        <div id="modal-iv"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const orders = [
+  { id:"#UZ-48291", product:"Платье летнее", size:"р. M", customer:"Нилуфар Р.", pay:"CoD", risk:87, level:"high",
+    factors:[{n:"История возвратов клиента",v:"0.42",p:85},{n:"Категория: одежда",v:"0.31",p:62},{n:"Несоответствие размера",v:"0.28",p:56},{n:"Способ оплаты: CoD",v:"0.22",p:44},{n:"Короткая сессия",v:"0.14",p:28}],
+    ivs:[{icon:"👕",cls:"i-blue",l:"Рекомендация размера",t:"Клиент ранее вернул р. M — рекомендован р. S (94% совпадений по похожим товарам)."},{icon:"📷",cls:"i-amber",l:"Доп. фотоконтент",t:"Отправлены 6 фото в деталях и видеообзор 360°."},{icon:"🔄",cls:"i-teal",l:"Бесплатный обмен",t:"Предложен обмен без доплаты в течение 14 дней вместо возврата."}]
+  },
+  { id:"#UZ-48287", product:"Кроссовки Nike Air", size:"42р", customer:"Бобур И.", pay:"CoD", risk:74, level:"high",
+    factors:[{n:"История возвратов клиента",v:"0.38",p:76},{n:"Несоответствие размера",v:"0.35",p:70},{n:"Категория: обувь",v:"0.29",p:58},{n:"Способ оплаты: CoD",v:"0.25",p:50},{n:"Первая покупка",v:"0.12",p:24}],
+    ivs:[{icon:"📏",cls:"i-blue",l:"Виртуальная примерка",t:"Запущена AR-примерка. Клиент вернул 42р в прошлый раз — рекомендована таблица замеров."},{icon:"🎁",cls:"i-teal",l:"Кешбэк за предоплату",t:"Кешбэк 5% при переходе на оплату картой через Uzum Bank."}]
+  },
+  { id:"#UZ-48283", product:"iPhone 15 Pro 256GB", size:"—", customer:"Камила Ю.", pay:"Карта", risk:58, level:"med",
+    factors:[{n:"Категория: электроника",v:"0.29",p:58},{n:"Короткая сессия",v:"0.26",p:52},{n:"Мало просмотренных товаров",v:"0.21",p:42},{n:"Рейтинг товара: 3.8",v:"0.18",p:36},{n:"Регион: Наманган",v:"0.08",p:16}],
+    ivs:[{icon:"📹",cls:"i-blue",l:"Видеообзор",t:"Отправлен обзор 12 мин с демонстрацией всех функций и сравнением с iPhone 14."},{icon:"💬",cls:"i-amber",l:"Консультация",t:"Предложен чат с консультантом до получения заказа."}]
+  },
+  { id:"#UZ-48279", product:"Куртка зимняя", size:"XL", customer:"Жасур Д.", pay:"Карта", risk:31, level:"low",
+    factors:[{n:"История возвратов клиента",v:"0.08",p:16},{n:"Категория: верхняя одежда",v:"0.18",p:36},{n:"Рейтинг товара: 4.7",v:"0.05",p:10},{n:"Предоплата картой",v:"0.03",p:6},{n:"Длинная сессия",v:"0.02",p:4}],
+    ivs:[{icon:"✅",cls:"i-teal",l:"Интервенция не нужна",t:"Индекс риска 31 — ниже порога 42. Заказ обрабатывается стандартно."}]
+  },
+  { id:"#UZ-48271", product:"Блуза шелковая", size:"р. S", customer:"Малика А.", pay:"CoD", risk:91, level:"high",
+    factors:[{n:"История возвратов клиента",v:"0.51",p:100},{n:"Несоответствие размера",v:"0.44",p:88},{n:"Категория: блузы",v:"0.31",p:62},{n:"Способ оплаты: CoD",v:"0.28",p:56},{n:"Импульсивная покупка",v:"0.19",p:38}],
+    ivs:[{icon:"👗",cls:"i-blue",l:"AR-примерка",t:"Запущена виртуальная примерка — клиент примерил онлайн перед получением заказа."},{icon:"📐",cls:"i-amber",l:"Размерная таблица",t:"Отправлены замеры в сантиметрах для р. S конкретного бренда."},{icon:"🔄",cls:"i-teal",l:"Обмен вместо возврата",t:"CoD-заказ: предложен обмен с курьером без похода на ПВЗ."}]
+  },
+  { id:"#UZ-48260", product:"Джинсы slim fit", size:"р. 32", customer:"Отабек М.", pay:"CoD", risk:66, level:"high",
+    factors:[{n:"История возвратов клиента",v:"0.33",p:66},{n:"Несоответствие размера",v:"0.30",p:60},{n:"Категория: джинсы",v:"0.24",p:48},{n:"Способ оплаты: CoD",v:"0.21",p:42},{n:"Сезонность: декабрь",v:"0.09",p:18}],
+    ivs:[{icon:"📏",cls:"i-blue",l:"Таблица замеров",t:"Рекомендован р. 34 по истории покупок. Отправлена таблица замеров бренда."},{icon:"🎁",cls:"i-teal",l:"Предоплата с кешбэком",t:"Предложен переход на предоплату с кешбэком 5% через Uzum Nasiya."}]
+  },
+  { id:"#UZ-48255", product:"Ноутбук ASUS VivoBook", size:"—", customer:"Санжар Н.", pay:"Карта", risk:22, level:"low",
+    factors:[{n:"Категория: электроника",v:"0.14",p:28},{n:"Рейтинг товара: 4.9",v:"0.03",p:6},{n:"Предоплата картой",v:"0.02",p:4},{n:"Длинная сессия (18 мин)",v:"0.01",p:2},{n:"История возвратов: 0%",v:"0.00",p:0}],
+    ivs:[{icon:"✅",cls:"i-teal",l:"Интервенция не нужна",t:"Индекс риска 22 — ниже порога 42. Покупатель с нулевой историей возвратов."}]
+  },
+  { id:"#UZ-48249", product:"Платье вечернее", size:"р. L", customer:"Зарнигор Х.", pay:"CoD", risk:79, level:"high",
+    factors:[{n:"История возвратов клиента",v:"0.40",p:80},{n:"Категория: вечерняя одежда",v:"0.33",p:66},{n:"Несоответствие размера",v:"0.29",p:58},{n:"Способ оплаты: CoD",v:"0.24",p:48},{n:"Импульсивная покупка",v:"0.16",p:32}],
+    ivs:[{icon:"👗",cls:"i-blue",l:"AR-примерка",t:"Предложена виртуальная примерка платья перед получением."},{icon:"📷",cls:"i-amber",l:"Видео на модели",t:"Отправлено видео с демонстрацией посадки в размерах S, M, L, XL."},{icon:"🔄",cls:"i-teal",l:"Бесплатный обмен",t:"Предложен обмен размера без дополнительных расходов."}]
+  },
+];
+
+const riskColor = r => r >= 70 ? "#E24B4A" : r >= 42 ? "#BA7517" : "#639922";
+const levelLabel = { high:"Высокий", med:"Средний", low:"Низкий" };
+const levelCls = { high:"b-high", med:"b-med", low:"b-low" };
+const iconCls = { "i-blue":"background:#E6F1FB", "i-amber":"background:#FAEEDA", "i-teal":"background:#E1F5EE" };
+
+function orderRow(o, extra="") {
+  return `<tr onclick="openDetail('${o.id}')">
+    <td style="font-weight:600;font-size:12px;color:var(--blue)">${o.id}</td>
+    <td>${o.product}${o.size!=="—"?" <span style='color:var(--text3);font-size:12px'>"+o.size+"</span>":""}</td>
+    <td style="color:var(--text2)">${o.customer}</td>
+    ${extra}
+    <td><div class="risk-wrap"><div class="risk-bg"><div class="risk-fill" style="width:${o.risk}%;background:${riskColor(o.risk)}"></div></div><span class="risk-num" style="color:${riskColor(o.risk)}">${o.risk}</span></div></td>
+    <td><span class="badge ${levelCls[o.level]}">${levelLabel[o.level]}</span></td>
+    <td><span class="badge ${o.risk>=42?"b-sent":"b-none"}">${o.risk>=42?"Отправлена":"Не нужна"}</span></td>
+  </tr>`;
+}
+
+function renderDashOrders() {
+  document.getElementById("dash-orders").innerHTML =
+    orders.filter(o=>o.risk>=42).slice(0,5).map(o=>orderRow(o)).join("");
+}
+
+function renderOrdersPage() {
+  const f = document.getElementById("filter-risk").value;
+  const filtered = f==="all" ? orders : orders.filter(o=>o.level===f);
+  document.getElementById("all-orders").innerHTML =
+    filtered.map(o=>orderRow(o,`<td><span style="font-size:12px;color:var(--text2)">${o.pay}</span></td>`)).join("");
+}
+
+function openDetail(id) {
+  const o = orders.find(x=>x.id===id);
+  document.getElementById("modal-title").textContent = o.id + " — " + o.product;
+  document.getElementById("modal-sub").textContent = o.customer + " · Риск: " + o.risk + "/100 · " + o.pay;
+  document.getElementById("modal-shap").innerHTML = o.factors.map(f=>`
+    <div class="shap-row">
+      <span class="shap-name">${f.n}</span>
+      <div class="shap-bar-bg"><div class="shap-bar-fill" style="width:${f.p}%;background:${f.p>70?"#E24B4A":f.p>40?"#BA7517":"#639922"}"></div></div>
+      <span class="shap-val" style="color:${f.p>70?"#E24B4A":f.p>40?"#BA7517":"var(--text2)"}">${f.v}</span>
+    </div>`).join("");
+  document.getElementById("modal-iv").innerHTML = o.ivs.map(iv=>`
+    <div class="iv-card">
+      <div class="iv-icon" style="${iconCls[iv.cls]}">${iv.icon}</div>
+      <div><div class="iv-label">${iv.l}</div><div class="iv-text">${iv.t}</div></div>
+    </div>`).join("");
+  document.getElementById("overlay").classList.add("open");
+}
+
+function closeDetail() {
+  document.getElementById("overlay").classList.remove("open");
+}
+
+function renderMainChart() {
+  const weeks = ["Окт 1","Окт 2","Окт 3","Нов","Дек","Янв","Фев","Мар"];
+  const exp  = [28.1,26.8,25.4,24.1,23.2,22.6,22.1,21.7];
+  const ctrl = [28.2,27.9,27.8,27.6,27.5,27.3,27.2,27.1];
+  const max = 30, h = 80;
+  document.getElementById("main-chart").innerHTML = weeks.map((w,i)=>`
+    <div class="bar-group">
+      <div class="bar" style="height:${(ctrl[i]/max*h).toFixed(1)}px;background:#B4B2A9;flex:1" title="Контроль ${ctrl[i]}%"></div>
+      <div class="bar" style="height:${(exp[i]/max*h).toFixed(1)}px;background:#185FA5;flex:1" title="Эксперимент ${exp[i]}%"></div>
+    </div>`).join("");
+  document.getElementById("main-labels").innerHTML = weeks.map(w=>`<span class="bar-lbl">${w}</span>`).join("");
+}
+
+function renderCatChart() {
+  const cats = [
+    {n:"Одежда и обувь",v:"−28.3%",p:100,c:"#185FA5"},
+    {n:"CoD-отказы",v:"−29.0%",p:100,c:"#E24B4A"},
+    {n:"Электроника",v:"−19.7%",p:68,c:"#1D9E75"},
+    {n:"Косметика",v:"−15.4%",p:53,c:"#BA7517"},
+    {n:"Дом и сад",v:"−11.2%",p:39,c:"#639922"},
+  ];
+  document.getElementById("cat-chart-main").innerHTML = cats.map(c=>`
+    <div class="cat-row">
+      <span class="cat-name">${c.n}</span>
+      <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${c.p}%;background:${c.c}"></div></div>
+      <span class="cat-val">${c.v}</span>
+    </div>`).join("");
+}
+
+function renderAlgos() {
+  const algos = [
+    {n:"LSTM (нейросеть)",v:0.879,p:100,best:false},
+    {n:"XGBoost",v:0.871,p:99,best:true},
+    {n:"LightGBM",v:0.864,p:98,best:false},
+    {n:"Random Forest",v:0.836,p:95,best:false},
+    {n:"Decision Tree",v:0.741,p:84,best:false},
+    {n:"Логист. регрессия",v:0.728,p:83,best:false},
+  ];
+  document.getElementById("algo-compare").innerHTML = algos.map(a=>`
+    <div class="algo-row ${a.best?"best":""}">
+      <span class="algo-name">${a.n}${a.best?' <span style="font-size:10px;background:#E6F1FB;color:#185FA5;padding:1px 6px;border-radius:100px;margin-left:4px">Выбран</span>':''}</span>
+      <div class="algo-bar-bg"><div class="algo-bar-fill" style="width:${a.p}%"></div></div>
+      <span class="algo-auc">${a.v}</span>
+    </div>`).join("");
+}
+
+function renderFeatures() {
+  const feats = [
+    {n:"История возвратов (6 мес.)",v:"0.187",p:100,c:"#E24B4A"},
+    {n:"Категория товара",v:"0.154",p:82,c:"#BA7517"},
+    {n:"Несоответствие размера",v:"0.132",p:71,c:"#BA7517"},
+    {n:"Способ оплаты (CoD)",v:"0.121",p:65,c:"#185FA5"},
+    {n:"Время на карточке",v:"0.098",p:52,c:"#185FA5"},
+    {n:"Просмотрено до заказа",v:"0.087",p:47,c:"#1D9E75"},
+    {n:"Позиций в заказе",v:"0.079",p:42,c:"#1D9E75"},
+    {n:"Рейтинг товара",v:"0.068",p:36,c:"#639922"},
+    {n:"Сезонность",v:"0.052",p:28,c:"#639922"},
+    {n:"Регион доставки",v:"0.022",p:12,c:"#B4B2A9"},
+  ];
+  document.getElementById("features").innerHTML = feats.map(f=>`
+    <div class="feature-row">
+      <span class="feature-name">${f.n}</span>
+      <div class="feature-bar-bg"><div class="feature-bar-fill" style="width:${f.p}%;background:${f.c}"></div></div>
+      <span class="feature-imp" style="color:${f.c}">${f.v}</span>
+    </div>`).join("");
+}
+
+function renderModelMetrics() {
+  const ms = [
+    {l:"AUC-ROC",v:"0.871",c:"#185FA5"},{l:"Accuracy",v:"83.6%",c:"#185FA5"},
+    {l:"Precision",v:"81.2%",c:"#1D9E75"},{l:"Recall",v:"80.3%",c:"#1D9E75"},
+    {l:"F1-score",v:"0.802",c:"#BA7517"},{l:"Порог",v:"0.42",c:"#B4B2A9"},
+  ];
+  document.getElementById("model-metrics").innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">` +
+    ms.map(m=>`<div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px"><div style="font-size:11px;color:var(--text3);margin-bottom:4px">${m.l}</div><div style="font-size:20px;font-weight:700;color:${m.c}">${m.v}</div></div>`).join("") + `</div>`;
+}
+
+function showPage(name, el) {
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  document.getElementById("page-"+name).classList.add("active");
+  if(el) el.classList.add("active");
+}
+
+// Init
+renderDashOrders();
+renderOrdersPage();
+renderMainChart();
+renderCatChart();
+renderAlgos();
+renderFeatures();
+renderModelMetrics();
+</script>
+</body>
+</html>
